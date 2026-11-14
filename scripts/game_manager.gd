@@ -16,7 +16,7 @@ signal threat_increased(threat_level: int)
 # A run lasts RUN_DURATION seconds; threat rises every THREAT_INTERVAL seconds,
 # making parties spawn faster, bigger, tougher and angrier.
 const RUN_DURATION: float = 300.0
-const THREAT_INTERVAL: float = 45.0
+const THREAT_INTERVAL: float = 40.0
 var time_left: float = RUN_DURATION
 var threat_level: int = 0
 
@@ -75,7 +75,15 @@ func _process(delta: float) -> void:
 
 # Multiplier applied to newly spawned adventurers' speed and damage
 func get_threat_multiplier() -> float:
-	return 1.0 + threat_level * 0.08
+	return 1.0 + threat_level * 0.12
+
+# HP lost per second while not digesting
+func get_hunger_rate() -> float:
+	return 1.0 + threat_level * 0.75
+
+# Chance a regular spawn is a hunting party that goes straight for the slime
+func get_hunter_chance() -> float:
+	return minf(1.0, threat_level * 0.25)
 
 func _setup_inputs() -> void:
 	# Ensure standard WASD + Arrow controls exist

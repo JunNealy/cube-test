@@ -17,9 +17,12 @@ func _ready() -> void:
 	call_deferred("_spawn_initial_parties")
 	GameManager.threat_increased.connect(_on_threat_increased)
 
-# Each threat step sends a hunting party straight at the player
+# Each threat step sends two hunting parties straight at the player
 func _on_threat_increased(_level: int) -> void:
-	var squad = _spawn_party()
+	_hunt(_spawn_party())
+	_hunt(_spawn_party())
+
+func _hunt(squad: int) -> void:
 	for adv in get_tree().get_nodes_in_group("adventurers"):
 		if adv.squad_id == squad:
 			adv.enrage_and_chase(player)
@@ -44,7 +47,9 @@ func _process(delta: float) -> void:
 	if spawn_timer <= 0.0:
 		spawn_timer = maxf(4.0, spawn_interval - threat * 2.0)
 		if active_count < max_active_adventurers + threat * 2:
-			_spawn_party()
+			var squad = _spawn_party()
+			if randf() < GameManager.get_hunter_chance():
+				_hunt(squad)
 
 func _get_active_adventurer_count() -> int:
 	var count = 0

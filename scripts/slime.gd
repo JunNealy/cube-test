@@ -9,6 +9,7 @@ class_name SlimePlayer
 
 var max_hp: float = 100.0
 var hp: float = 100.0
+var is_dead: bool = false
 
 var is_digesting: bool = false
 var digestion_timer: float = 0.0
@@ -78,7 +79,7 @@ func _ready() -> void:
 	GameManager.buff_gained.connect(_on_buff_gained)
 
 func _physics_process(delta: float) -> void:
-	if GameManager.is_game_over:
+	if GameManager.is_game_over or is_dead:
 		return
 	
 	_handle_growth(delta)
@@ -102,11 +103,20 @@ func _apply_size() -> void:
 	(engulf_shape.shape as BoxShape3D).size = Vector3(reach, BASE_ENGULF_SIZE * current_growth, reach)
 	engulf_shape.position.y = BASE_HEIGHT * current_growth
 
+# Net HP change per second: regen power-up minus hunger. Hunger pauses while
+# digesting and grows with threat, so the cube can't idle safely.
 func _handle_regen(delta: float) -> void:
-	var regen = GameManager.level("regen") * 1.5
-	if regen > 0.0 and hp < max_hp:
-		hp = minf(max_hp, hp + regen * delta)
-		GameManager.player_hp_changed.emit(hp, max_hp)
+	if is_dead:
+		return
+	var rate = GameManager.level("regen") * 1.5
+	if not is_digesting:
+		rate -= GameManager.get_hunger_rate()
+	if rate == 0.0 or (rate > 0.0 and hp >= max_hp):
+		return
+	hp = clampf(hp + rate * delta, 0.0, max_hp)
+	GameManager.player_hp_changed.emit(hp, max_hp)
+	if hp <= 0.0:
+		_die()
 
 func _handle_movement(delta: float) -> void:
 	var move_dir = Vector3.ZERO
@@ -255,7 +265,7 @@ func _alert_nearby_companions(squad_id: int) -> void:
 				adv.enrage_and_chase(self)
 
 func _on_engulf_area_body_entered(body: Node3D) -> void:
-	if GameManager.is_game_over:
+	if GameManager.is_game_over or is_dead:
 		return
 	
 	if body.is_in_group("adventurers"):
@@ -314,7 +324,7 @@ func _bounce_off_armored(adventurer: Adventurer) -> void:
 	velocity = bounce_dir * 9.0
 
 func take_damage(amount: float, reason: String = "") -> void:
-	if GameManager.is_game_over:
+	if GameManager.is_game_over or is_dead:
 		return
 	
 	amount *= GameManager.get_damage_taken_multiplier()
@@ -329,6 +339,9 @@ func take_damage(amount: float, reason: String = "") -> void:
 		_die()
 
 func _die() -> void:
+	if is_dead:
+		return
+	is_dead = true
 	AudioManager.play_game_over()
 	_spawn_floating_text("DISSOLVED!", Color(1.0, 0.1, 0.1), 48)
 	

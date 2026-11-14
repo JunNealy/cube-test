@@ -78,7 +78,7 @@ func _on_digestion_finished(_loot: Dictionary) -> void:
 
 func _set_hungry_state() -> void:
 	digestion_panel.modulate = Color(0.3, 1.0, 0.4)
-	digestion_label.text = "HUNGRY - READY TO ENGULF PREY"
+	digestion_label.text = "STARVING - EAT TO STOP LOSING HP"
 	digestion_bar.value = 100.0
 
 func _on_buff_gained(buff_name: String, desc: String, icon: String) -> void:
