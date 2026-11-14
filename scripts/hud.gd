@@ -11,6 +11,9 @@ extends Control
 
 @onready var score_label: Label = $TopRight/VBox/ScoreLabel
 @onready var high_score_label: Label = $TopRight/VBox/HighScoreLabel
+@onready var timer_label: Label = $TopRight/VBox/TimerLabel
+@onready var threat_label: Label = $TopRight/VBox/ThreatLabel
+@onready var game_over_title: Label = $GameOverLayer/GameOverPanel/VBox/Title
 
 @onready var buffs_container: VBoxContainer = $LeftPanel/VBox/BuffsList
 @onready var stats_label: Label = $BottomBar/StatsLabel
@@ -37,6 +40,9 @@ func _ready() -> void:
 	
 	restart_button.pressed.connect(_on_restart_pressed)
 	GameManager.powerup_choices_offered.connect(_on_powerup_choices_offered)
+	GameManager.run_timer_updated.connect(_on_run_timer_updated)
+	GameManager.threat_increased.connect(_on_threat_increased)
+	_on_run_timer_updated(GameManager.time_left, GameManager.threat_level)
 	# Keep HUD alive while the tree is paused for power-up selection
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
@@ -115,12 +121,41 @@ func _on_game_over(final_score: int, is_new_record: bool, stats: Dictionary) -> 
 	final_score_label.text = "FINAL SCORE: %s" % _format_number(final_score)
 	new_record_label.visible = is_new_record
 	
-	var text = "Adventurers Digested: %d\n" % stats.get("adventurers_digested", 0)
+	game_over_title.text = "TIME'S UP!" if stats.get("reason") == "time" else "SLIME DISSOLVED!"
+	var survived = int(stats.get("time_survived", 0.0))
+	var text = "Survived: %d:%02d  (Threat Level %d)\n" % [survived / 60, survived % 60, stats.get("threat_level", 0) + 1]
+	text += "Adventurers Digested: %d\n" % stats.get("adventurers_digested", 0)
 	text += "Loot In Mass: %d items\n" % stats.get("loot_count", 0)
 	text += "Speed Buffs (Boots): +%d%%\n" % (stats.get("boots_count", 0) * 20)
 	text += "Gauntlets of Ogre Power: %s\n" % ("Unlocked" if stats.get("has_gauntlets", false) else "None")
 	text += "Acid Rings: %d" % stats.get("acid_rings", 0)
 	stats_recap_label.text = text
+
+func _on_run_timer_updated(time_left: float, threat_level: int) -> void:
+	var secs = int(ceilf(time_left))
+	timer_label.text = "%d:%02d" % [secs / 60, secs % 60]
+	# Red and pulsing in the last 30 seconds
+	if time_left <= 30.0:
+		timer_label.modulate = Color(1.0, 0.3, 0.3, 0.6 + 0.4 * absf(sin(time_left * 4.0)))
+	else:
+		timer_label.modulate = Color.WHITE
+	threat_label.text = "THREAT LEVEL %d" % (threat_level + 1)
+
+func _on_threat_increased(threat_level: int) -> void:
+	var banner = Label.new()
+	banner.text = "THREAT LEVEL %d - MORE ADVENTURERS INCOMING!" % (threat_level + 1)
+	banner.add_theme_font_size_override("font_size", 28)
+	banner.add_theme_color_override("font_color", Color(1.0, 0.35, 0.25))
+	banner.add_theme_color_override("font_outline_color", Color.BLACK)
+	banner.add_theme_constant_override("outline_size", 8)
+	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	banner.position.y = 110
+	add_child(banner)
+	var tw = create_tween()
+	tw.tween_interval(2.0)
+	tw.tween_property(banner, "modulate:a", 0.0, 0.6)
+	tw.tween_callback(banner.queue_free)
 
 func _on_powerup_choices_offered(choices: Array) -> void:
 	var overlay = ColorRect.new()

@@ -10,6 +10,15 @@ signal digestion_finished(loot_data: Dictionary)
 signal player_hp_changed(hp: float, max_hp: float)
 signal game_over_triggered(final_score: int, is_new_record: bool, stats: Dictionary)
 signal powerup_choices_offered(choices: Array)
+signal run_timer_updated(time_left: float, threat_level: int)
+signal threat_increased(threat_level: int)
+
+# A run lasts RUN_DURATION seconds; threat rises every THREAT_INTERVAL seconds,
+# making parties spawn faster, bigger, tougher and angrier.
+const RUN_DURATION: float = 300.0
+const THREAT_INTERVAL: float = 45.0
+var time_left: float = RUN_DURATION
+var threat_level: int = 0
 
 const CHOICE_COUNT: int = 3
 
@@ -51,6 +60,23 @@ func _ready() -> void:
 	_setup_inputs()
 	load_high_score()
 
+func _process(delta: float) -> void:
+	# Always-processing node: freeze the clock while paused (power-up choice)
+	if is_game_over or get_tree().paused:
+		return
+	time_left = maxf(0.0, time_left - delta)
+	var new_threat = int((RUN_DURATION - time_left) / THREAT_INTERVAL)
+	if new_threat > threat_level:
+		threat_level = new_threat
+		threat_increased.emit(threat_level)
+	run_timer_updated.emit(time_left, threat_level)
+	if time_left <= 0.0:
+		trigger_game_over("time")
+
+# Multiplier applied to newly spawned adventurers' speed and damage
+func get_threat_multiplier() -> float:
+	return 1.0 + threat_level * 0.08
+
 func _setup_inputs() -> void:
 	# Ensure standard WASD + Arrow controls exist
 	_add_action_key("move_up", [KEY_W, KEY_UP])
@@ -71,6 +97,8 @@ func reset_game() -> void:
 	current_score = 0
 	adventurers_digested = 0
 	is_game_over = false
+	time_left = RUN_DURATION
+	threat_level = 0
 	powerup_levels.clear()
 	contained_loot.clear()
 	emit_signal("score_updated", current_score, high_score)
@@ -137,12 +165,16 @@ func get_damage_taken_multiplier() -> float:
 func get_bonus_max_hp() -> float:
 	return level("vitality") * 25.0
 
-func trigger_game_over() -> void:
+# reason: "dissolved" (slime died) or "time" (run clock ran out)
+func trigger_game_over(reason: String = "dissolved") -> void:
 	if is_game_over:
 		return
 	is_game_over = true
 	var is_new_record = (current_score >= high_score and current_score > 0)
 	var stats = {
+		"reason": reason,
+		"threat_level": threat_level,
+		"time_survived": RUN_DURATION - time_left,
 		"adventurers_digested": adventurers_digested,
 		"boots_count": level("boots"),
 		"has_gauntlets": level("gauntlets") > 0,

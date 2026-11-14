@@ -15,6 +15,14 @@ var adventurer_scene: PackedScene
 func _ready() -> void:
 	adventurer_scene = load("res://scenes/adventurer.tscn")
 	call_deferred("_spawn_initial_parties")
+	GameManager.threat_increased.connect(_on_threat_increased)
+
+# Each threat step sends a hunting party straight at the player
+func _on_threat_increased(_level: int) -> void:
+	var squad = _spawn_party()
+	for adv in get_tree().get_nodes_in_group("adventurers"):
+		if adv.squad_id == squad:
+			adv.enrage_and_chase(player)
 
 # Random corridor cell far enough from the player that spawns aren't unfair
 func _far_spawn_point() -> Vector3:
@@ -31,9 +39,11 @@ func _process(delta: float) -> void:
 	if active_count <= 3 and spawn_timer > 3.0:
 		spawn_timer = 3.0
 	
+	# Threat shortens the spawn interval and raises the population cap
+	var threat = GameManager.threat_level
 	if spawn_timer <= 0.0:
-		spawn_timer = spawn_interval
-		if active_count < max_active_adventurers:
+		spawn_timer = maxf(4.0, spawn_interval - threat * 2.0)
+		if active_count < max_active_adventurers + threat * 2:
 			_spawn_party()
 
 func _get_active_adventurer_count() -> int:
@@ -60,22 +70,27 @@ func _spawn_initial_parties() -> void:
 	# Party 4: Mage + Squire
 	_spawn_party_at(_far_spawn_point(), [Adventurer.Type.MAGE, Adventurer.Type.SQUIRE])
 
-func _spawn_party() -> void:
+func _spawn_party() -> int:
 	var spawn_pos = _far_spawn_point()
-	
-	# Decide party composition based on game progression
+	var threat = GameManager.threat_level
+
+	# Decide party composition; knights get more common as threat rises
 	var comp: Array[Adventurer.Type] = []
-	var roll = randf()
-	if roll < 0.35:
+	var roll = randf() - threat * 0.05
+	if roll > 0.65:
 		comp = [Adventurer.Type.ROGUE, Adventurer.Type.SQUIRE]
-	elif roll < 0.7:
+	elif roll > 0.3:
 		comp = [Adventurer.Type.MAGE, Adventurer.Type.ROGUE]
 	else:
 		comp = [Adventurer.Type.KNIGHT, Adventurer.Type.MAGE]
-	
-	_spawn_party_at(spawn_pos, comp)
 
-func _spawn_party_at(base_pos: Vector3, composition: Array[Adventurer.Type]) -> void:
+	# Bigger parties at higher threat (up to +2 members)
+	for i in mini(threat / 2, 2):
+		comp.append([Adventurer.Type.KNIGHT, Adventurer.Type.SQUIRE, Adventurer.Type.ROGUE].pick_random())
+
+	return _spawn_party_at(spawn_pos, comp)
+
+func _spawn_party_at(base_pos: Vector3, composition: Array[Adventurer.Type]) -> int:
 	var squad = next_squad_id
 	next_squad_id += 1
 	
@@ -88,3 +103,4 @@ func _spawn_party_at(base_pos: Vector3, composition: Array[Adventurer.Type]) -> 
 		var offset = Vector3(randf_range(-0.8, 0.8), 0, randf_range(-0.8, 0.8))
 		adv.position = base_pos + offset
 		get_parent().add_child(adv)
+	return squad

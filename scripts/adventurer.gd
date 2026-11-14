@@ -68,6 +68,11 @@ func _configure_type_stats() -> void:
 			is_armored = true
 			attack_damage = 25.0
 
+	# Later spawns are tougher
+	var threat_mult = GameManager.get_threat_multiplier()
+	move_speed *= threat_mult
+	attack_damage *= threat_mult
+
 func _build_visuals() -> void:
 	visual_root = Node3D.new()
 	add_child(visual_root)
