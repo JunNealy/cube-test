@@ -82,6 +82,8 @@ func _set_hungry_state() -> void:
 	digestion_bar.value = 100.0
 
 func _on_buff_gained(buff_name: String, desc: String, icon: String) -> void:
+	if buff_name == GameManager.POWERUPS["snack"]["name"]:
+		return  # one-shot, takes no slot
 	if not active_buff_cards.has(buff_name):
 		var card = PanelContainer.new()
 		var hbox = HBoxContainer.new()
@@ -126,10 +128,12 @@ func _on_game_over(final_score: int, is_new_record: bool, stats: Dictionary) -> 
 	var text = "Survived: %d:%02d  (Threat Level %d)\n" % [survived / 60, survived % 60, stats.get("threat_level", 0) + 1]
 	text += "Adventurers Digested: %d\n" % stats.get("adventurers_digested", 0)
 	text += "Loot In Mass: %d items\n" % stats.get("loot_count", 0)
-	text += "Speed Buffs (Boots): +%d%%\n" % (stats.get("boots_count", 0) * 20)
-	text += "Gauntlets of Ogre Power: %s\n" % ("Unlocked" if stats.get("has_gauntlets", false) else "None")
-	text += "Acid Rings: %d" % stats.get("acid_rings", 0)
-	stats_recap_label.text = text
+	var levels: Dictionary = stats.get("powerup_levels", {})
+	for id in levels:
+		var info = GameManager.POWERUPS[id]
+		if info["max"] > 0:
+			text += "%s %s: Lv %d\n" % [info["icon"], info["name"], levels[id]]
+	stats_recap_label.text = text.strip_edges()
 
 func _on_run_timer_updated(time_left: float, threat_level: int) -> void:
 	var secs = int(ceilf(time_left))
@@ -172,7 +176,7 @@ func _on_powerup_choices_offered(choices: Array) -> void:
 	center.add_child(vbox)
 
 	var title = Label.new()
-	title.text = "THE CUBE GROWS... CHOOSE A MUTATION"
+	title.text = "THE CUBE GROWS... CHOOSE A MUTATION  (SLOTS %d/%d)" % [GameManager.slots_used(), GameManager.MAX_SLOTS]
 	title.add_theme_font_size_override("font_size", 26)
 	title.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -191,7 +195,11 @@ func _on_powerup_choices_offered(choices: Array) -> void:
 		btn.custom_minimum_size = Vector2(220, 170)
 		btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		btn.add_theme_font_size_override("font_size", 16)
-		var lvl_text = "" if info["max"] == 1 else "\nLv %d" % next_level
+		var lvl_text = ""
+		if next_level == 1 and info["max"] > 0:
+			lvl_text = "\nNEW - uses a slot"
+		elif info["max"] > 1:
+			lvl_text = "\nLv %d / %d" % [next_level, info["max"]]
 		btn.text = "[%d]\n%s\n%s\n\n%s%s" % [i + 1, info["icon"], info["name"], info["desc"], lvl_text]
 		btn.pressed.connect(func():
 			overlay.queue_free()

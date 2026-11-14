@@ -99,7 +99,7 @@ func _apply_size() -> void:
 	(body_shape.shape as BoxShape3D).size = Vector3.ONE * body_size
 	body_shape.position.y = BASE_HEIGHT * current_growth
 	visual_root.position.y = BASE_HEIGHT * current_growth
-	var reach = BASE_ENGULF_SIZE * current_growth * (1.0 + GameManager.level("reach") * 0.25)
+	var reach = BASE_ENGULF_SIZE * current_growth * (1.0 + GameManager.level("reach") * 0.20)
 	(engulf_shape.shape as BoxShape3D).size = Vector3(reach, BASE_ENGULF_SIZE * current_growth, reach)
 	engulf_shape.position.y = BASE_HEIGHT * current_growth
 
@@ -108,7 +108,8 @@ func _apply_size() -> void:
 func _handle_regen(delta: float) -> void:
 	if is_dead:
 		return
-	var rate = GameManager.level("regen") * 1.5
+	# Lv5 (5 HP/s) outpaces hunger until late threat, never fully at max threat
+	var rate = GameManager.level("regen") * 1.0
 	if not is_digesting:
 		rate -= GameManager.get_hunger_rate()
 	if rate == 0.0 or (rate > 0.0 and hp >= max_hp):
@@ -232,7 +233,7 @@ func _complete_digestion() -> void:
 	# Grow in mass toward corridor-filling size
 	growth_factor = minf(MAX_GROWTH, growth_factor + GROWTH_PER_MEAL)
 
-	var absorb = GameManager.level("absorb") * 15.0
+	var absorb = GameManager.level("absorb") * 10.0
 	if absorb > 0.0:
 		hp = minf(max_hp, hp + absorb)
 		GameManager.player_hp_changed.emit(hp, max_hp)
@@ -430,6 +431,9 @@ func _on_buff_gained(buff_name: String, _desc: String, _icon: String) -> void:
 	if buff_name == GameManager.POWERUPS["vitality"]["name"]:
 		max_hp = 100.0 + GameManager.get_bonus_max_hp()
 		hp = max_hp
+		GameManager.player_hp_changed.emit(hp, max_hp)
+	elif buff_name == GameManager.POWERUPS["snack"]["name"]:
+		hp = minf(max_hp, hp + GameManager.SNACK_HEAL)
 		GameManager.player_hp_changed.emit(hp, max_hp)
 	# Reach may have changed
 	_apply_size()
