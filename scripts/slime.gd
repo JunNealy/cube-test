@@ -53,6 +53,15 @@ func _ready() -> void:
 	slime_mat = cube_mesh.get_active_material(0).duplicate() as StandardMaterial3D
 	cube_mesh.set_surface_override_material(0, slime_mat)
 
+	# Faint silhouette drawn only where walls hide the cube (inverted depth test)
+	var xray = StandardMaterial3D.new()
+	xray.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	xray.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	xray.albedo_color = Color(0.3, 1.0, 0.45, 0.35)
+	xray.depth_test = BaseMaterial3D.DEPTH_TEST_INVERTED
+	xray.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	slime_mat.next_pass = xray
+
 	# Own copies so resizing never touches the cached scene resources
 	body_shape.shape = body_shape.shape.duplicate()
 	engulf_shape.shape = engulf_shape.shape.duplicate()

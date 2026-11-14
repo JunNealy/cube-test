@@ -186,7 +186,14 @@ func _build_visuals() -> void:
 	w_mat.albedo_color = Color(0.8, 0.8, 0.8)
 	weapon_mesh.material_override = w_mat
 	weapon_pivot.add_child(weapon_mesh)
-	
+
+	# X-ray silhouette so adventurers stay visible behind walls
+	for mesh in [body_mesh, head_mesh, hat_mesh, weapon_mesh]:
+		var mat = mesh.material_override as BaseMaterial3D
+		if mat:
+			mat.stencil_mode = BaseMaterial3D.STENCIL_MODE_XRAY
+			mat.stencil_color = Color(1.0, 0.35, 0.25, 0.6)
+
 	# Overhead Status / Speech Billboard
 	status_label = Label3D.new()
 	status_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
