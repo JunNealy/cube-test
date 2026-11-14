@@ -38,8 +38,11 @@ var status_label: Label3D
 
 var walk_cycle: float = 0.0
 
+var dungeon: DungeonBuilder
+
 func _ready() -> void:
 	add_to_group("adventurers")
+	dungeon = get_node_or_null("../DungeonBuilder") as DungeonBuilder
 	_build_visuals()
 	_configure_type_stats()
 	patrol_dir = _get_random_cardinal_dir()
@@ -67,6 +70,11 @@ func _configure_type_stats() -> void:
 			move_speed = 2.8
 			is_armored = true
 			attack_damage = 25.0
+
+	# Later spawns are tougher
+	var threat_mult = GameManager.get_threat_multiplier()
+	move_speed *= threat_mult
+	attack_damage *= threat_mult
 
 func _build_visuals() -> void:
 	visual_root = Node3D.new()
@@ -186,7 +194,14 @@ func _build_visuals() -> void:
 	w_mat.albedo_color = Color(0.8, 0.8, 0.8)
 	weapon_mesh.material_override = w_mat
 	weapon_pivot.add_child(weapon_mesh)
-	
+
+	# X-ray silhouette so adventurers stay visible behind walls
+	for mesh in [body_mesh, head_mesh, hat_mesh, weapon_mesh]:
+		var mat = mesh.material_override as BaseMaterial3D
+		if mat:
+			mat.stencil_mode = BaseMaterial3D.STENCIL_MODE_XRAY
+			mat.stencil_color = Color(1.0, 0.35, 0.25, 0.6)
+
 	# Overhead Status / Speech Billboard
 	status_label = Label3D.new()
 	status_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -259,10 +274,17 @@ func _process_chase(delta: float) -> void:
 	var to_player = target_player.global_position - global_position
 	to_player.y = 0.0
 	var dist = to_player.length()
-	
+
+	# Follow the maze toward the player instead of walking into walls
+	var goal = target_player.global_position
+	if dungeon:
+		goal = dungeon.next_waypoint(global_position, goal)
+	var to_goal = goal - global_position
+	to_goal.y = 0.0
+
 	# Chase at higher speed
 	var chase_speed = move_speed * 1.35
-	var dir = to_player.normalized()
+	var dir = to_goal.normalized()
 	
 	# If navigating maze walls, adjust if stuck
 	if is_on_wall():
@@ -273,10 +295,9 @@ func _process_chase(delta: float) -> void:
 	velocity.x = dir.x * chase_speed
 	velocity.z = dir.z * chase_speed
 	
-	# Attack if close and player is currently digesting!
-	if dist <= attack_range:
-		if target_player.is_digesting and attack_timer <= 0.0:
-			_attack_player()
+	# Enraged adventurers strike whenever in range
+	if dist <= attack_range and attack_timer <= 0.0:
+		_attack_player()
 
 func _process_flee(delta: float) -> void:
 	flee_timer -= delta
