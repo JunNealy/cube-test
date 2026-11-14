@@ -66,6 +66,52 @@ func _generate_maze() -> void:
 		for c in range(mid - 1, mid + 2):
 			maze_grid[r][c] = 0
 
+# BFS distance field toward the last requested target cell; rebuilt only when that cell changes
+var _flow_target: Vector2i = Vector2i(-1, -1)
+var _flow_dist: PackedInt32Array = PackedInt32Array()
+const NEIGHBORS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+
+func world_to_cell(p: Vector3) -> Vector2i:
+	var offset = (GRID_SIZE * CELL_SIZE) * 0.5 - (CELL_SIZE * 0.5)
+	return Vector2i(
+		clampi(roundi((p.x + offset) / CELL_SIZE), 0, GRID_SIZE - 1),
+		clampi(roundi((p.z + offset) / CELL_SIZE), 0, GRID_SIZE - 1))
+
+func _build_flow(target: Vector2i) -> void:
+	_flow_target = target
+	_flow_dist.resize(GRID_SIZE * GRID_SIZE)
+	_flow_dist.fill(-1)
+	_flow_dist[target.y * GRID_SIZE + target.x] = 0
+	var queue: Array[Vector2i] = [target]
+	var head = 0
+	while head < queue.size():
+		var cur = queue[head]
+		head += 1
+		var d = _flow_dist[cur.y * GRID_SIZE + cur.x]
+		for n in NEIGHBORS:
+			var nb = cur + n
+			if nb.x < 0 or nb.y < 0 or nb.x >= GRID_SIZE or nb.y >= GRID_SIZE:
+				continue
+			var i = nb.y * GRID_SIZE + nb.x
+			if maze_grid[nb.y][nb.x] == 0 and _flow_dist[i] == -1:
+				_flow_dist[i] = d + 1
+				queue.append(nb)
+
+# Where something at `from` should head next to reach `target` through the corridors
+func next_waypoint(from: Vector3, target: Vector3) -> Vector3:
+	var tc = world_to_cell(target)
+	if tc != _flow_target:
+		_build_flow(tc)
+	var fc = world_to_cell(from)
+	var d = _flow_dist[fc.y * GRID_SIZE + fc.x]
+	if d <= 1:
+		return target # same/adjacent cell, or off-grid: go straight
+	for n in NEIGHBORS:
+		var nb = fc + n
+		if _flow_dist[nb.y * GRID_SIZE + nb.x] == d - 1:
+			return cell_to_world(nb.y, nb.x)
+	return target
+
 func cell_to_world(r: int, c: int) -> Vector3:
 	var offset = (GRID_SIZE * CELL_SIZE) * 0.5 - (CELL_SIZE * 0.5)
 	return Vector3(c * CELL_SIZE - offset, 0.0, r * CELL_SIZE - offset)

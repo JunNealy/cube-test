@@ -38,8 +38,11 @@ var status_label: Label3D
 
 var walk_cycle: float = 0.0
 
+var dungeon: DungeonBuilder
+
 func _ready() -> void:
 	add_to_group("adventurers")
+	dungeon = get_node_or_null("../DungeonBuilder") as DungeonBuilder
 	_build_visuals()
 	_configure_type_stats()
 	patrol_dir = _get_random_cardinal_dir()
@@ -271,10 +274,17 @@ func _process_chase(delta: float) -> void:
 	var to_player = target_player.global_position - global_position
 	to_player.y = 0.0
 	var dist = to_player.length()
-	
+
+	# Follow the maze toward the player instead of walking into walls
+	var goal = target_player.global_position
+	if dungeon:
+		goal = dungeon.next_waypoint(global_position, goal)
+	var to_goal = goal - global_position
+	to_goal.y = 0.0
+
 	# Chase at higher speed
 	var chase_speed = move_speed * 1.35
-	var dir = to_player.normalized()
+	var dir = to_goal.normalized()
 	
 	# If navigating maze walls, adjust if stuck
 	if is_on_wall():
@@ -285,10 +295,9 @@ func _process_chase(delta: float) -> void:
 	velocity.x = dir.x * chase_speed
 	velocity.z = dir.z * chase_speed
 	
-	# Attack if close and player is currently digesting!
-	if dist <= attack_range:
-		if target_player.is_digesting and attack_timer <= 0.0:
-			_attack_player()
+	# Enraged adventurers strike whenever in range
+	if dist <= attack_range and attack_timer <= 0.0:
+		_attack_player()
 
 func _process_flee(delta: float) -> void:
 	flee_timer -= delta
