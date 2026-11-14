@@ -1,28 +1,18 @@
 extends Node3D
 
-# Procedurally constructs a 3D dungeon maze with stone walls, floor, and flickering torches
+class_name DungeonBuilder
+
+# Procedurally generates a 3D dungeon maze with stone walls, floor, and flickering torches
 
 const CELL_SIZE: float = 3.0
 const WALL_HEIGHT: float = 2.8
+# Must be odd so corridor centers land on multiples of CELL_SIZE (slime lane assist relies on it)
+const GRID_SIZE: int = 27
+const LOOP_CHANCE: float = 0.12 # chance to knock out an extra wall, giving alternate routes
+const TORCH_CHANCE: float = 0.08
 
-# 1 = Wall, 0 = Corridor
-const MAZE_GRID = [
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-	[1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1],
-	[1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1],
-	[1, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1],
-	[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-	[1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1],
-	[1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-	[1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1],
-	[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-	[1, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1],
-	[1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1],
-	[1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1],
-	[1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-]
+# 1 = Wall, 0 = Corridor. Filled by _generate_maze().
+var maze_grid: Array = []
 
 var wall_mat: StandardMaterial3D
 var floor_mat: StandardMaterial3D
@@ -30,9 +20,68 @@ var trim_mat: StandardMaterial3D
 var torch_mat: StandardMaterial3D
 
 func _ready() -> void:
+	_generate_maze()
 	_create_materials()
 	_build_floor()
 	_build_walls()
+
+func _generate_maze() -> void:
+	maze_grid.clear()
+	for r in range(GRID_SIZE):
+		var row = []
+		row.resize(GRID_SIZE)
+		row.fill(1)
+		maze_grid.append(row)
+
+	# Iterative recursive-backtracker over odd cells
+	var start = Vector2i(1, 1)
+	maze_grid[start.y][start.x] = 0
+	var stack: Array[Vector2i] = [start]
+	var steps: Array[Vector2i] = [Vector2i(2, 0), Vector2i(-2, 0), Vector2i(0, 2), Vector2i(0, -2)]
+	while not stack.is_empty():
+		var cur = stack.back()
+		var options: Array[Vector2i] = []
+		for s in steps:
+			var n = cur + s
+			if n.x > 0 and n.y > 0 and n.x < GRID_SIZE - 1 and n.y < GRID_SIZE - 1 and maze_grid[n.y][n.x] == 1:
+				options.append(n)
+		if options.is_empty():
+			stack.pop_back()
+			continue
+		var next = options.pick_random()
+		var between = (cur + next) / 2
+		maze_grid[between.y][between.x] = 0
+		maze_grid[next.y][next.x] = 0
+		stack.append(next)
+
+	# Knock out some walls between two corridors to create loops
+	for r in range(1, GRID_SIZE - 1):
+		for c in range(1, GRID_SIZE - 1):
+			if maze_grid[r][c] == 1 and (r + c) % 2 == 1 and randf() < LOOP_CHANCE:
+				maze_grid[r][c] = 0
+
+	# Open starting room in the center (player spawns at origin)
+	var mid = GRID_SIZE / 2
+	for r in range(mid - 1, mid + 2):
+		for c in range(mid - 1, mid + 2):
+			maze_grid[r][c] = 0
+
+func cell_to_world(r: int, c: int) -> Vector3:
+	var offset = (GRID_SIZE * CELL_SIZE) * 0.5 - (CELL_SIZE * 0.5)
+	return Vector3(c * CELL_SIZE - offset, 0.0, r * CELL_SIZE - offset)
+
+func get_random_floor_position(near: Vector3, min_dist: float, max_dist: float = INF) -> Vector3:
+	var floor_cells: Array[Vector3] = []
+	for r in range(GRID_SIZE):
+		for c in range(GRID_SIZE):
+			if maze_grid[r][c] == 0:
+				floor_cells.append(cell_to_world(r, c))
+	floor_cells.shuffle()
+	for p in floor_cells:
+		var d = p.distance_to(near)
+		if d >= min_dist and d <= max_dist:
+			return p
+	return floor_cells[0]
 
 func _create_materials() -> void:
 	# Wall Material: Slate dungeon stone
@@ -58,8 +107,8 @@ func _create_materials() -> void:
 	torch_mat.emission = Color(1.0, 0.6, 0.1)
 
 func _build_floor() -> void:
-	var rows = MAZE_GRID.size()
-	var cols = MAZE_GRID[0].size()
+	var rows = maze_grid.size()
+	var cols = maze_grid[0].size()
 	var total_w = cols * CELL_SIZE
 	var total_h = rows * CELL_SIZE
 	
@@ -81,14 +130,14 @@ func _build_floor() -> void:
 	add_child(floor_body)
 
 func _build_walls() -> void:
-	var rows = MAZE_GRID.size()
-	var cols = MAZE_GRID[0].size()
+	var rows = maze_grid.size()
+	var cols = maze_grid[0].size()
 	var offset_x = (cols * CELL_SIZE) * 0.5 - (CELL_SIZE * 0.5)
 	var offset_z = (rows * CELL_SIZE) * 0.5 - (CELL_SIZE * 0.5)
 	
 	for r in range(rows):
 		for c in range(cols):
-			var val = MAZE_GRID[r][c]
+			var val = maze_grid[r][c]
 			var world_x = (c * CELL_SIZE) - offset_x
 			var world_z = (r * CELL_SIZE) - offset_z
 			
@@ -96,7 +145,7 @@ func _build_walls() -> void:
 				_create_wall_block(Vector3(world_x, WALL_HEIGHT * 0.5, world_z))
 			else:
 				# Chance to spawn a torch on adjacent walls
-				if (r + c) % 4 == 0:
+				if randf() < TORCH_CHANCE:
 					_maybe_spawn_torch(r, c, world_x, world_z)
 
 func _create_wall_block(pos: Vector3) -> void:

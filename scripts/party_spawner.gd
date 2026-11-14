@@ -2,29 +2,23 @@ extends Node
 
 # Manages spawning adventuring parties with companion squad dynamics
 
-@export var max_active_adventurers: int = 8
-@export var spawn_interval: float = 16.0
+@export var max_active_adventurers: int = 12
+@export var spawn_interval: float = 14.0
 
 var next_squad_id: int = 1
 var spawn_timer: float = 0.0
-var spawn_points: Array[Vector3] = []
 
 var adventurer_scene: PackedScene
+@onready var dungeon: DungeonBuilder = get_node("../DungeonBuilder")
+@onready var player: Node3D = get_node("../Slime")
 
 func _ready() -> void:
 	adventurer_scene = load("res://scenes/adventurer.tscn")
-	# Setup spawn points around the perimeter of the maze
-	spawn_points = [
-		Vector3(-18.0, 0.0, -18.0),
-		Vector3(18.0, 0.0, -18.0),
-		Vector3(-18.0, 0.0, 18.0),
-		Vector3(18.0, 0.0, 18.0),
-		Vector3(0.0, 0.0, -18.0),
-		Vector3(0.0, 0.0, 18.0)
-	]
-	
-	# Initial spawn: 3 parties (e.g. 7 total adventurers)
 	call_deferred("_spawn_initial_parties")
+
+# Random corridor cell far enough from the player that spawns aren't unfair
+func _far_spawn_point() -> Vector3:
+	return dungeon.get_random_floor_position(player.global_position, 18.0)
 
 func _process(delta: float) -> void:
 	if GameManager.is_game_over:
@@ -52,19 +46,22 @@ func _get_active_adventurer_count() -> int:
 
 func _spawn_initial_parties() -> void:
 	# Intro Party near player: Rogue + Squire (great immediate test of engulf & companion reaction)
-	_spawn_party_at(Vector3(6.0, 0.0, 0.0), [Adventurer.Type.ROGUE, Adventurer.Type.SQUIRE])
-	
+	_spawn_party_at(dungeon.get_random_floor_position(player.global_position, 5.0, 9.0), [Adventurer.Type.ROGUE, Adventurer.Type.SQUIRE])
+
 	# Party 1: Rogue + Squire
-	_spawn_party_at(spawn_points[0], [Adventurer.Type.ROGUE, Adventurer.Type.SQUIRE])
-	
+	_spawn_party_at(_far_spawn_point(), [Adventurer.Type.ROGUE, Adventurer.Type.SQUIRE])
+
 	# Party 2: Mage + Rogue (Provides acid rings and speed)
-	_spawn_party_at(spawn_points[1], [Adventurer.Type.MAGE, Adventurer.Type.ROGUE])
-	
+	_spawn_party_at(_far_spawn_point(), [Adventurer.Type.MAGE, Adventurer.Type.ROGUE])
+
 	# Party 3: Knight + Squire (Tougher party with heavy armor!)
-	_spawn_party_at(spawn_points[2], [Adventurer.Type.KNIGHT, Adventurer.Type.SQUIRE])
+	_spawn_party_at(_far_spawn_point(), [Adventurer.Type.KNIGHT, Adventurer.Type.SQUIRE])
+
+	# Party 4: Mage + Squire
+	_spawn_party_at(_far_spawn_point(), [Adventurer.Type.MAGE, Adventurer.Type.SQUIRE])
 
 func _spawn_party() -> void:
-	var spawn_pos = spawn_points.pick_random()
+	var spawn_pos = _far_spawn_point()
 	
 	# Decide party composition based on game progression
 	var comp: Array[Adventurer.Type] = []
@@ -88,6 +85,6 @@ func _spawn_party_at(base_pos: Vector3, composition: Array[Adventurer.Type]) -> 
 		adv.adventurer_type = adv_type
 		adv.squad_id = squad
 		
-		var offset = Vector3(randf_range(-1.2, 1.2), 0, randf_range(-1.2, 1.2))
+		var offset = Vector3(randf_range(-0.8, 0.8), 0, randf_range(-0.8, 0.8))
 		adv.position = base_pos + offset
 		get_parent().add_child(adv)
