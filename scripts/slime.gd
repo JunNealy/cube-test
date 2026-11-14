@@ -17,7 +17,20 @@ var current_prey_data: Dictionary = {}
 
 var visual_scale: Vector3 = Vector3.ONE
 var target_visual_scale: Vector3 = Vector3.ONE
-var growth_factor: float = 1.0
+
+# Growth: starts small, grows per digestion until it plugs a corridor.
+# At MAX_GROWTH the 1.4m base collider is ~2.6m in a 3m corridor, so adventurers can't slip past.
+const START_GROWTH: float = 0.5
+const MAX_GROWTH: float = 1.85
+const GROWTH_PER_MEAL: float = 0.12
+const BASE_BODY_SIZE: float = 1.4
+const BASE_ENGULF_SIZE: float = 1.7
+const BASE_HEIGHT: float = 0.75
+var growth_factor: float = START_GROWTH  # target
+var current_growth: float = START_GROWTH # smoothed toward target
+
+@onready var body_shape: CollisionShape3D = $CollisionShape3D
+@onready var engulf_shape: CollisionShape3D = $EngulfArea/CollisionShape3D
 
 # References
 @onready var visual_root: Node3D = $VisualRoot
@@ -39,8 +52,14 @@ func _ready() -> void:
 	# Duplicate material to avoid sharing instance
 	slime_mat = cube_mesh.get_active_material(0).duplicate() as StandardMaterial3D
 	cube_mesh.set_surface_override_material(0, slime_mat)
-	
-	max_hp = 100.0 + GameManager.bonus_max_hp
+
+	# Own copies so resizing never touches the cached scene resources
+	body_shape.shape = body_shape.shape.duplicate()
+	engulf_shape.shape = engulf_shape.shape.duplicate()
+	visual_scale = Vector3.ONE * current_growth
+	_apply_size()
+
+	max_hp = 100.0 + GameManager.get_bonus_max_hp()
 	hp = max_hp
 	GameManager.player_hp_changed.emit(hp, max_hp)
 	
@@ -53,9 +72,32 @@ func _physics_process(delta: float) -> void:
 	if GameManager.is_game_over:
 		return
 	
+	_handle_growth(delta)
 	_handle_movement(delta)
 	_handle_digestion(delta)
+	_handle_regen(delta)
 	_handle_wobble_and_visuals(delta)
+
+func _handle_growth(delta: float) -> void:
+	if is_equal_approx(current_growth, growth_factor):
+		return
+	current_growth = move_toward(current_growth, growth_factor, 0.4 * delta)
+	_apply_size()
+
+func _apply_size() -> void:
+	var body_size = BASE_BODY_SIZE * current_growth
+	(body_shape.shape as BoxShape3D).size = Vector3.ONE * body_size
+	body_shape.position.y = BASE_HEIGHT * current_growth
+	visual_root.position.y = BASE_HEIGHT * current_growth
+	var reach = BASE_ENGULF_SIZE * current_growth * (1.0 + GameManager.level("reach") * 0.25)
+	(engulf_shape.shape as BoxShape3D).size = Vector3(reach, BASE_ENGULF_SIZE * current_growth, reach)
+	engulf_shape.position.y = BASE_HEIGHT * current_growth
+
+func _handle_regen(delta: float) -> void:
+	var regen = GameManager.level("regen") * 1.5
+	if regen > 0.0 and hp < max_hp:
+		hp = minf(max_hp, hp + regen * delta)
+		GameManager.player_hp_changed.emit(hp, max_hp)
 
 func _handle_movement(delta: float) -> void:
 	var move_dir = Vector3.ZERO
@@ -82,7 +124,7 @@ func _handle_movement(delta: float) -> void:
 		var squish_x = 1.0 + (abs(move_dir.x) * 0.18 - abs(move_dir.z) * 0.1) * move_speed_ratio
 		var squish_z = 1.0 + (abs(move_dir.z) * 0.18 - abs(move_dir.x) * 0.1) * move_speed_ratio
 		var squish_y = 1.0 - (0.16 * move_speed_ratio)
-		target_visual_scale = Vector3(squish_x, squish_y, squish_z) * growth_factor
+		target_visual_scale = Vector3(squish_x, squish_y, squish_z) * current_growth
 		
 		trail_particles.emitting = true
 		
@@ -97,8 +139,19 @@ func _handle_movement(delta: float) -> void:
 		
 		# Idle gentle breathing wobble
 		var breathe = sin(Time.get_ticks_msec() * 0.003) * 0.04
-		target_visual_scale = Vector3(1.0 + breathe, 1.0 - breathe, 1.0 + breathe) * growth_factor
+		target_visual_scale = Vector3(1.0 + breathe, 1.0 - breathe, 1.0 + breathe) * current_growth
 	
+	# Lane assist: once big, pull the off-axis toward the corridor center so the
+	# cube slides into side openings instead of snagging on wall corners.
+	# Corridor centers sit on multiples of CELL_SIZE (DungeonBuilder.GRID_SIZE is odd).
+	var lane_t = clampf((current_growth - 1.0) / (MAX_GROWTH - 1.0), 0.0, 1.0)
+	if lane_t > 0.0 and move_dir != Vector3.ZERO:
+		var cell = DungeonBuilder.CELL_SIZE
+		if absf(move_dir.x) < 0.01:
+			velocity.x = (snappedf(global_position.x, cell) - global_position.x) * 10.0 * lane_t
+		elif absf(move_dir.z) < 0.01:
+			velocity.z = (snappedf(global_position.z, cell) - global_position.z) * 10.0 * lane_t
+
 	# Apply gravity just in case
 	if not is_on_floor():
 		velocity.y -= 9.8 * delta
@@ -155,10 +208,15 @@ func _complete_digestion() -> void:
 	
 	# Audio & FX
 	AudioManager.play_digest_done()
-	_spawn_floating_text("DIGESTED! +" + str(current_prey_data.get("score_value", 100)), Color(0.3, 1.0, 0.4), 40)
-	
-	# Slight growth in mass
-	growth_factor = minf(1.4, growth_factor + 0.03)
+	_spawn_floating_text("DIGESTED! +" + str(GameManager.get_score_value(current_prey_data)), Color(0.3, 1.0, 0.4), 40)
+
+	# Grow in mass toward corridor-filling size
+	growth_factor = minf(MAX_GROWTH, growth_factor + GROWTH_PER_MEAL)
+
+	var absorb = GameManager.level("absorb") * 15.0
+	if absorb > 0.0:
+		hp = minf(max_hp, hp + absorb)
+		GameManager.player_hp_changed.emit(hp, max_hp)
 	
 	# Spawn visual loot prop inside slime
 	_spawn_loot_prop(current_prey_data)
@@ -202,7 +260,7 @@ func _on_engulf_area_body_entered(body: Node3D) -> void:
 			return
 		
 		# Check armor requirement
-		if adventurer.is_armored and not GameManager.has_gauntlets:
+		if adventurer.is_armored and GameManager.level("gauntlets") == 0:
 			# Bounce! Too tough to chew
 			_bounce_off_armored(adventurer)
 			return
@@ -250,6 +308,7 @@ func take_damage(amount: float, reason: String = "") -> void:
 	if GameManager.is_game_over:
 		return
 	
+	amount *= GameManager.get_damage_taken_multiplier()
 	hp = maxf(0.0, hp - amount)
 	flash_timer = 0.25
 	AudioManager.play_hurt()
@@ -346,7 +405,9 @@ func _on_buff_gained(buff_name: String, _desc: String, _icon: String) -> void:
 	AudioManager.play_buff()
 	_spawn_floating_text(buff_name + "!", Color(0.2, 0.9, 1.0), 38)
 	# Check if vitality increased HP
-	if buff_name.begins_with("Amulet of Vitality"):
-		max_hp = 100.0 + GameManager.bonus_max_hp
+	if buff_name == GameManager.POWERUPS["vitality"]["name"]:
+		max_hp = 100.0 + GameManager.get_bonus_max_hp()
 		hp = max_hp
 		GameManager.player_hp_changed.emit(hp, max_hp)
+	# Reach may have changed
+	_apply_size()

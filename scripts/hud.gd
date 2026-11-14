@@ -36,7 +36,10 @@ func _ready() -> void:
 	GameManager.game_over_triggered.connect(_on_game_over)
 	
 	restart_button.pressed.connect(_on_restart_pressed)
-	
+	GameManager.powerup_choices_offered.connect(_on_powerup_choices_offered)
+	# Keep HUD alive while the tree is paused for power-up selection
+	process_mode = Node.PROCESS_MODE_ALWAYS
+
 	_set_hungry_state()
 	_update_stats_footer()
 
@@ -118,6 +121,55 @@ func _on_game_over(final_score: int, is_new_record: bool, stats: Dictionary) -> 
 	text += "Gauntlets of Ogre Power: %s\n" % ("Unlocked" if stats.get("has_gauntlets", false) else "None")
 	text += "Acid Rings: %d" % stats.get("acid_rings", 0)
 	stats_recap_label.text = text
+
+func _on_powerup_choices_offered(choices: Array) -> void:
+	var overlay = ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.55)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+
+	var center = CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	center.add_child(vbox)
+
+	var title = Label.new()
+	title.text = "THE CUBE GROWS... CHOOSE A MUTATION"
+	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	var row = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(row)
+
+	for i in range(choices.size()):
+		var id: String = choices[i]
+		var info = GameManager.POWERUPS[id]
+		var next_level = GameManager.level(id) + 1
+		var btn = Button.new()
+		btn.custom_minimum_size = Vector2(220, 170)
+		btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		btn.add_theme_font_size_override("font_size", 16)
+		var lvl_text = "" if info["max"] == 1 else "\nLv %d" % next_level
+		btn.text = "[%d]\n%s\n%s\n\n%s%s" % [i + 1, info["icon"], info["name"], info["desc"], lvl_text]
+		btn.pressed.connect(func():
+			overlay.queue_free()
+			GameManager.choose_powerup(id))
+		row.add_child(btn)
+		# Number keys 1-3 pick a card
+		var sc = Shortcut.new()
+		var ev = InputEventKey.new()
+		ev.physical_keycode = KEY_1 + i
+		sc.events = [ev]
+		btn.shortcut = sc
+		if i == 0:
+			btn.grab_focus.call_deferred()
 
 func _on_restart_pressed() -> void:
 	GameManager.reset_game()
